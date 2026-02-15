@@ -20,32 +20,37 @@ STATS_PATH = os.getenv("STATS_PATH", "stats.json")
 os.makedirs(os.path.dirname(STATS_PATH) or ".", exist_ok=True)
 ADMIN_IDS = {int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip().isdigit()}
 
-_stats = {
+# ===== ШАБЛОН СТАТИСТИКИ =====
+DEFAULT_STATS = {
     "total_requests": 0,
-    "unique_users": [],          # список user_id
-    "requests_by_day": {},       # "2026-02-15": 12
-    "dates_asked": {},           # "2026-08-18": 7
-    "sources": {},               # "text": 10, "button_today": 5, ...
+    "unique_users": [],
+    "requests_by_day": {},
+    "dates_asked": {},
+    "sources": {},
 }
+
+_stats = DEFAULT_STATS.copy()
 _last_save_ts = 0
+
 
 def _load_stats():
     global _stats
     try:
         with open(STATS_PATH, "r", encoding="utf-8") as f:
-            _stats = json.load(f)
+            loaded = json.load(f)
+
+            # создаём чистый шаблон
+            _stats = DEFAULT_STATS.copy()
+
+            # обновляем его данными из файла
+            if isinstance(loaded, dict):
+                _stats.update(loaded)
+
     except FileNotFoundError:
-        pass
+        _stats = DEFAULT_STATS.copy()
     except Exception as e:
         print("STATS load error:", e)
-
-print("STATS_PATH =", STATS_PATH)
-print("STATS_EXISTS =", os.path.exists(STATS_PATH))
-try:
-    print("DATA_DIR =", os.listdir("/data"))
-except Exception as e:
-    print("DATA_DIR_ERROR =", e)
-
+        _stats = DEFAULT_STATS.copy()
 
 def _save_stats(force: bool = False):
     global _last_save_ts
