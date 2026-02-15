@@ -17,6 +17,7 @@ bot = telebot.TeleBot(TOKEN)
 # =======================
 TZ = ZoneInfo("Europe/Vienna")
 STATS_PATH = os.getenv("STATS_PATH", "stats.json")
+os.makedirs(os.path.dirname(STATS_PATH) or ".", exist_ok=True)
 ADMIN_IDS = {int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip().isdigit()}
 
 _stats = {
