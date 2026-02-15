@@ -39,6 +39,14 @@ def _load_stats():
     except Exception as e:
         print("STATS load error:", e)
 
+print("STATS_PATH =", STATS_PATH)
+print("STATS_EXISTS =", os.path.exists(STATS_PATH))
+try:
+    print("DATA_DIR =", os.listdir("/data"))
+except Exception as e:
+    print("DATA_DIR_ERROR =", e)
+
+
 def _save_stats(force: bool = False):
     global _last_save_ts
     now = time.time()
