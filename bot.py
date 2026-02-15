@@ -236,6 +236,10 @@ def stats_cmd(message):
     )
     bot.reply_to(message, text)
 
+@bot.message_handler(commands=["myid"])
+def myid(message):
+    bot.reply_to(message, f"Твой id: {message.from_user.id}")
+
 
 @bot.message_handler(commands=["start"])
 def start(message):
