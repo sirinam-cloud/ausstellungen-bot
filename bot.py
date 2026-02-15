@@ -9,7 +9,7 @@ TOKEN = os.getenv("BOT_TOKEN")
 bot = telebot.TeleBot(TOKEN)
 
 SHEETS_URL = os.getenv("SHEETS_CSV_URL")
-CSV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv"
+CSV_URL = os.getenv("SHEETS_CSV_URL")
 
 
 def main_keyboard():
