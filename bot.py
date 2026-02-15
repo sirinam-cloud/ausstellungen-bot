@@ -2,11 +2,86 @@ import telebot
 import pandas as pd
 import html
 import os
+import json
+import time
+from collections import Counter
+from zoneinfo import ZoneInfo
 from datetime import datetime, timedelta
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton
 
 TOKEN = os.getenv("BOT_TOKEN")
 bot = telebot.TeleBot(TOKEN)
+
+# =======================
+# СТАТИСТИКА
+# =======================
+TZ = ZoneInfo("Europe/Vienna")
+STATS_PATH = os.getenv("STATS_PATH", "stats.json")
+ADMIN_IDS = {int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip().isdigit()}
+
+_stats = {
+    "total_requests": 0,
+    "unique_users": [],          # список user_id
+    "requests_by_day": {},       # "2026-02-15": 12
+    "dates_asked": {},           # "2026-08-18": 7
+    "sources": {},               # "text": 10, "button_today": 5, ...
+}
+_last_save_ts = 0
+
+def _load_stats():
+    global _stats
+    try:
+        with open(STATS_PATH, "r", encoding="utf-8") as f:
+            _stats = json.load(f)
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        print("STATS load error:", e)
+
+def _save_stats(force: bool = False):
+    global _last_save_ts
+    now = time.time()
+    if not force and now - _last_save_ts < 15:
+        return
+    _last_save_ts = now
+    try:
+        with open(STATS_PATH, "w", encoding="utf-8") as f:
+            json.dump(_stats, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print("STATS save error:", e)
+
+def record_request(user_id: int, date_str: str, source: str = "text"):
+    today = time.strftime("%Y-%m-%d", time.localtime(time.time()))
+    # лучше считать "сегодня" по Вене:
+    try:
+        from datetime import datetime
+        today = datetime.now(TZ).date().isoformat()
+    except Exception:
+        pass
+
+    _stats["total_requests"] = int(_stats.get("total_requests", 0)) + 1
+
+    # уникальные пользователи
+    if user_id not in set(_stats.get("unique_users", [])):
+        _stats.setdefault("unique_users", []).append(user_id)
+
+    # запросы по дням
+    rbd = _stats.setdefault("requests_by_day", {})
+    rbd[today] = int(rbd.get(today, 0)) + 1
+
+    # какие даты спрашивают
+    da = _stats.setdefault("dates_asked", {})
+    if date_str:
+        da[date_str] = int(da.get(date_str, 0)) + 1
+
+    # источник (кнопка/текст)
+    src = _stats.setdefault("sources", {})
+    src[source] = int(src.get(source, 0)) + 1
+
+    _save_stats()
+
+_load_stats()
+
 
 SHEETS_URL = os.getenv("SHEETS_CSV_URL")
 CSV_URL = os.getenv("SHEETS_CSV_URL")
@@ -124,6 +199,44 @@ def send_museum_chunks(chat_id, header_base, museum_blocks, max_len=3500):
         )
 
 
+@bot.message_handler(commands=["stats"])
+def stats_cmd(message):
+    if message.from_user.id not in ADMIN_IDS:
+        bot.reply_to(message, "Эта команда доступна только администратору.")
+        return
+
+    unique_count = len(set(_stats.get("unique_users", [])))
+    total = _stats.get("total_requests", 0)
+
+    # последние 7 дней
+    rbd = _stats.get("requests_by_day", {})
+    last_days = sorted(rbd.items())[-7:]
+    last_days_text = "\n".join([f"{d}: {c}" for d, c in last_days]) or "нет данных"
+
+    # топ-10 дат
+    da = _stats.get("dates_asked", {})
+    top_dates = sorted(da.items(), key=lambda x: x[1], reverse=True)[:10]
+    top_dates_text = "\n".join([f"{d}: {c}" for d, c in top_dates]) or "нет данных"
+
+    # источники
+    src = _stats.get("sources", {})
+    src_top = sorted(src.items(), key=lambda x: x[1], reverse=True)
+    src_text = "\n".join([f"{k}: {v}" for k, v in src_top]) or "нет данных"
+
+    text = (
+        "📊 Статистика\n\n"
+        f"Всего запросов: {total}\n"
+        f"Уникальных пользователей: {unique_count}\n\n"
+        "🗓 Запросы по дням (последние 7):\n"
+        f"{last_days_text}\n\n"
+        "📅 Самые запрашиваемые даты (топ-10):\n"
+        f"{top_dates_text}\n\n"
+        "🎛 Источники:\n"
+        f"{src_text}"
+    )
+    bot.reply_to(message, text)
+
+
 @bot.message_handler(commands=["start"])
 def start(message):
     bot.send_message(
@@ -166,6 +279,13 @@ def handle(message):
             reply_markup=main_keyboard()
         )
         return
+
+    # Записываем статистику
+    record_request(
+        message.from_user.id,
+        user_date.strftime("%Y-%m-%d"),
+        source="text"
+    )
 
 
     # Пишем статус, чтобы пользователь видел, что бот работает
