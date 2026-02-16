@@ -305,6 +305,12 @@ def ending_soon_cmd(message):
     today = datetime.today().date()
     until = today + timedelta(days=14)
 
+    record_request(
+        message.from_user.id,
+        today.strftime("%Y-%m-%d"),
+        source="ending_soon"
+    )
+
     try:
         df = load_data_cached()
     except Exception:
@@ -330,6 +336,12 @@ def starting_soon_cmd(message):
     today = datetime.today().date()
     until = today + timedelta(days=14)
 
+    record_request(
+        message.from_user.id,
+        today.strftime("%Y-%m-%d"),
+        source="starting_soon"
+    )
+    
     try:
         df = load_data_cached()
     except Exception:
