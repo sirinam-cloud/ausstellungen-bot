@@ -263,6 +263,93 @@ def start(message):
     )
 
 
+def send_matches(chat_id, matches, header_base):
+    """
+    Красивый вывод matches (DataFrame) с группировкой по музеям и разбиением на части.
+    header_base — строка заголовка, например "📅 ...\nНайдено: 10"
+    """
+    if matches is None or matches.empty:
+        bot.send_message(chat_id, "Ничего не найдено.")
+        return
+
+    matches = matches.sort_values(by=["museum", "end_date", "title"])
+
+    museum_blocks = []
+    current_museum = None
+    lines = []
+
+    for _, row in matches.iterrows():
+        museum = html.escape(str(row["museum"]).strip())
+        title = html.escape(str(row["title"]).replace("\n", " ").strip())
+        url = str(row["url"]).strip()
+        end_date = row["end_date"]
+        end_text = format_date_short_ru(end_date) if pd.notna(end_date) else "—"
+
+        if museum != current_museum:
+            if current_museum is not None:
+                museum_blocks.append("".join(lines).strip())
+                lines = []
+            current_museum = museum
+            lines.append(f"🏛 {museum}\n")
+
+        lines.append(f"  • ✨ <a href=\"{url}\">{title}</a> (до {end_text})\n")
+
+    if lines:
+        museum_blocks.append("".join(lines).strip())
+
+    send_museum_chunks(chat_id, header_base, museum_blocks)
+
+@bot.message_handler(commands=["ending_soon"])
+def ending_soon_cmd(message):
+    today = datetime.today().date()
+    until = today + timedelta(days=14)
+
+    try:
+        df = load_data_cached()
+    except Exception:
+        bot.reply_to(message, "Не удалось прочитать таблицу. Проверь доступ по ссылке.")
+        return
+
+    matches = df[(df["end_date"] >= today) & (df["end_date"] <= until)]
+
+    if matches.empty:
+        bot.send_message(message.chat.id, "В ближайшие 2 недели ничего не заканчивается.")
+        return
+
+    header_base = (
+        f"⏳ Заканчиваются в ближайшие 2 недели\n"
+        f"Период: {today.strftime('%d.%m.%Y')} – {until.strftime('%d.%m.%Y')}\n"
+        f"Найдено: {len(matches)}"
+    )
+    send_matches(message.chat.id, matches, header_base)
+
+
+@bot.message_handler(commands=["starting_soon"])
+def starting_soon_cmd(message):
+    today = datetime.today().date()
+    until = today + timedelta(days=14)
+
+    try:
+        df = load_data_cached()
+    except Exception:
+        bot.reply_to(message, "Не удалось прочитать таблицу. Проверь доступ по ссылке.")
+        return
+
+    matches = df[(df["start_date"] >= today) & (df["start_date"] <= until)]
+
+    if matches.empty:
+        bot.send_message(message.chat.id, "В ближайшие 2 недели ничего не начинается.")
+        return
+
+    header_base = (
+        f"🆕 Начинаются в ближайшие 2 недели\n"
+        f"Период: {today.strftime('%d.%m.%Y')} – {until.strftime('%d.%m.%Y')}\n"
+        f"Найдено: {len(matches)}"
+    )
+    send_matches(message.chat.id, matches, header_base)
+
+
+
 @bot.message_handler(func=lambda m: True)
 def handle(message):
     text = message.text.strip()
@@ -335,39 +422,10 @@ def handle(message):
         return
 
 
+date_text = format_date_ddmmyyyy(user_date)
+header_base = f"📅 Выставки на {date_text}\nНайдено: {len(matches)}"
 
-    # ↓↓↓ ВОТ СЮДА ВСТАВЛЯЕМ НОВЫЙ КОД ↓↓↓
-
-    date_text = format_date_ddmmyyyy(user_date)
-    header_base = f"📅 Выставки на {date_text}\nНайдено: {len(matches)}"
-
-    matches = matches.sort_values(by=["museum", "end_date", "title"])
-
-    museum_blocks = []
-    current_museum = None
-    lines = []
-
-    for _, row in matches.iterrows():
-        museum = html.escape(str(row["museum"]).strip())
-        title = html.escape(str(row["title"]).replace("\n", " ").strip())
-        url = str(row["url"]).strip()
-        end_date = row["end_date"]
-        end_text = format_date_short_ru(end_date) if pd.notna(end_date) else "—"
-
-        if museum != current_museum:
-            if current_museum is not None:
-                museum_blocks.append("".join(lines).strip())
-                lines = []
-            current_museum = museum
-            lines.append(f"🏛 {museum}\n")
-
-        lines.append(f"  • ✨ <a href=\"{url}\">{title}</a> (до {end_text})\n")
-
-    if lines:
-        museum_blocks.append("".join(lines).strip())
-
-    send_museum_chunks(message.chat.id, header_base, museum_blocks)
-
+send_matches(message.chat.id, matches, header_base)
 
 
 bot.polling()
