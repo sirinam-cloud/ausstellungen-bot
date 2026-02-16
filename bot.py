@@ -102,6 +102,7 @@ CSV_URL = os.getenv("SHEETS_CSV_URL")
 def main_keyboard():
     kb = ReplyKeyboardMarkup(resize_keyboard=True)
     kb.row(KeyboardButton("🔥 Сегодня"), KeyboardButton("📅 Завтра"))
+    kb.row(KeyboardButton("⏳ Заканчиваются скоро"), KeyboardButton("🆕 Начинаются скоро"))
     kb.row(KeyboardButton("🗓 Ввести дату"))
     return kb
 
@@ -360,6 +361,14 @@ def handle(message):
 
     elif low in ("📅 завтра", "завтра"):
         user_date = (datetime.today() + timedelta(days=1)).date()
+
+    elif low in ("⏳ заканчиваются скоро", "заканчиваются скоро"):
+        ending_soon_cmd(message)
+        return
+
+    elif low in ("🆕 начинаются скоро", "начинаются скоро"):
+        starting_soon_cmd(message)
+        return
 
     elif low in ("🗓 ввести дату", "ввести дату"):
         bot.send_message(
