@@ -55,8 +55,6 @@ def _load_stats():
 def _save_stats(force: bool = False):
     global _last_save_ts
     now = time.time()
-    if not force and now - _last_save_ts < 15:
-        return
     _last_save_ts = now
     try:
         with open(STATS_PATH, "w", encoding="utf-8") as f:
@@ -92,7 +90,7 @@ def record_request(user_id: int, date_str: str, source: str = "text"):
     src = _stats.setdefault("sources", {})
     src[source] = int(src.get(source, 0)) + 1
 
-    _save_stats()
+    _save_stats(force=True)
 
 _load_stats()
 
@@ -218,6 +216,9 @@ def stats_cmd(message):
     if message.from_user.id not in ADMIN_IDS:
         bot.reply_to(message, "Эта команда доступна только администратору.")
         return
+
+    # 👉 Сохраняем статистику перед выводом
+    _save_stats(force=True)
 
     unique_count = len(set(_stats.get("unique_users", [])))
     total = _stats.get("total_requests", 0)
