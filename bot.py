@@ -372,6 +372,23 @@ def starting_soon_cmd(message):
     send_matches(message.chat.id, matches, header_base)
 
 
+@bot.message_handler(commands=["help"])
+def help_command(message):
+    text = (
+        "ℹ️ Обо мне\n\n"
+        "Меня зовут Маша и я люблю ходить в музеи.\n"
+        "Для себя я уже давно веду список выставок и теперь решила перенести его в бот. Надеюсь, он вам будет полезен.\n\n"
+        "Если вы интересуетесь историей, подписывайтесь на мой канал "В запасниках Хофбурга" (https://t.me/hofburg_depot).\n"
+        "Там я пишу короткие заметки о разных интересностях, которые мне удалось найти об императрице Елизавете (та самая Сиси), других Габсбургах и не только о них.\n"
+        "Там же я размещаю анонсы исторических прогулок, которые периодически провожу по Вене, присоединяйтесь!"
+    )
+
+    bot.send_message(
+        message.chat.id,
+        text,
+        reply_markup=main_keyboard()
+    )
+
 
 @bot.message_handler(func=lambda m: True)
 def handle(message):
