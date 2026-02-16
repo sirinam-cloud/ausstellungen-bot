@@ -422,10 +422,10 @@ def handle(message):
         return
 
 
-date_text = format_date_ddmmyyyy(user_date)
-header_base = f"📅 Выставки на {date_text}\nНайдено: {len(matches)}"
+    date_text = format_date_ddmmyyyy(user_date)
+    header_base = f"📅 Выставки на {date_text}\nНайдено: {len(matches)}"
 
-send_matches(message.chat.id, matches, header_base)
+    send_matches(message.chat.id, matches, header_base)
 
 
 bot.polling()
