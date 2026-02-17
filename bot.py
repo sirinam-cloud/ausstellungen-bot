@@ -386,8 +386,8 @@ def starting_soon_cmd(message):
 @bot.message_handler(commands=["best_month"])
 def best_month_cmd(message):
     base = datetime.today().date()
-    until_start = base + timedelta(days=30)      # "в ближайший месяц"
-    tomorrow = base + timedelta(days=1)          # "не позднее завтра"
+    tomorrow = base + timedelta(days=1)
+    month_end = base + timedelta(days=30)
 
     record_request(
         message.from_user.id,
@@ -401,25 +401,49 @@ def best_month_cmd(message):
         bot.reply_to(message, "Не удалось прочитать таблицу. Проверь доступ по ссылке.")
         return
 
-    # Если колонки best ещё нет — подскажем (чтобы не падало)
-    if "best" not in df.columns:
+    # Проверка наличия колонки BEST (без падения регистра)
+    best_column = None
+    for col in df.columns:
+        if col.strip().lower() == "best":
+            best_column = col
+            break
+
+    if not best_column:
         bot.send_message(
             message.chat.id,
-            "В таблице нет колонки 'best'. Добавь колонку best со значением 'да' для лучших выставок 🙂",
+            "В таблице нет колонки 'BEST'. Добавь колонку BEST со значением 'да' для лучших выставок 🙂",
             reply_markup=main_keyboard()
         )
         return
 
+    # Маска лучших
     best_mask = (
-        df["best"].astype(str).str.strip().str.lower()
+        df[best_column].astype(str).str.strip().str.lower()
         .isin({"да", "yes", "true", "1", "y"})
     )
 
-    starts_within_month = (df["start_date"] >= base) & (df["start_date"] <= until_start)
+    # 1️⃣ Заканчивается не позднее завтра (и ещё не закончилась раньше)
+    ends_by_tomorrow = (
+        (df["end_date"] >= base) &
+        (df["end_date"] <= tomorrow)
+    )
 
-    ends_by_tomorrow = (df["end_date"] >= base) & (df["end_date"] <= tomorrow)
+    # 2️⃣ Начинается в пределах ближайших 30 дней
+    starts_within_month = (
+        (df["start_date"] >= base) &
+        (df["start_date"] <= month_end)
+    )
 
-    matches = df[best_mask & (starts_within_month | ends_by_tomorrow)]
+    # 3️⃣ Покрывает весь месяц от даты запроса
+    covers_whole_month = (
+        (df["start_date"] <= base) &
+        (df["end_date"] >= month_end)
+    )
+
+    matches = df[
+        best_mask &
+        (ends_by_tomorrow | starts_within_month | covers_whole_month)
+    ]
 
     if matches.empty:
         bot.send_message(
@@ -431,10 +455,10 @@ def best_month_cmd(message):
 
     header_base = (
         f"⭐ Лучшие выставки месяца\n"
-        f"Начинаются до {until_start.strftime('%d.%m.%Y')} "
-        f"или заканчиваются до {tomorrow.strftime('%d.%m.%Y')}\n"
+        f"Период: {base.strftime('%d.%m.%Y')} – {month_end.strftime('%d.%m.%Y')}\n"
         f"Найдено: {len(matches)}"
     )
+
     send_matches(message.chat.id, matches, header_base)
 
 
