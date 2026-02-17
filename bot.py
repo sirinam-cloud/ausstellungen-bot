@@ -12,6 +12,15 @@ from telebot.types import ReplyKeyboardMarkup, KeyboardButton
 TOKEN = os.getenv("BOT_TOKEN")
 bot = telebot.TeleBot(TOKEN)
 
+BUTTONS = {
+    "🔥 выставки на сегодня": "today",
+    "📅 выставки на завтра": "tomorrow",
+    "⏳ заканчиваются скоро": "ending",
+    "🆕 новые выставки": "starting",
+    "🗓 ввести дату": "date",
+}
+
+
 # =======================
 # СТАТИСТИКА
 # =======================
@@ -399,24 +408,28 @@ def about_command(message):
 
 @bot.message_handler(func=lambda m: True)
 def handle(message):
-    text = message.text.strip()
-    low = text.lower()
+    text = (message.text or "").strip()
+    key = text.lower()
 
-    if low in ("🔥 Выставки на сегодня", "сегодня"):
+    action = BUTTONS.get(key)
+
+    # === 1. Кнопки ===
+
+    if action == "today":
         user_date = datetime.today().date()
 
-    elif low in ("📅 Выставки на завтра", "завтра"):
+    elif action == "tomorrow":
         user_date = (datetime.today() + timedelta(days=1)).date()
 
-    elif low in ("⏳ Заканчиваются скоро", "заканчиваются скоро"):
+    elif action == "ending":
         ending_soon_cmd(message)
         return
 
-    elif low in ("🆕 Новые выставки", "новые выставки"):
+    elif action == "starting":
         starting_soon_cmd(message)
         return
 
-    elif low in ("🗓 ввести дату", "ввести дату"):
+    elif action == "date":
         bot.send_message(
             message.chat.id,
             "Напишите дату в формате 2026-02-12 или 12.02.2026",
@@ -424,8 +437,18 @@ def handle(message):
         )
         return
 
+    # === 2. Ввод вручную ===
+
+    elif key in ("сегодня", "today"):
+        user_date = datetime.today().date()
+
+    elif key in ("завтра", "tomorrow"):
+        user_date = (datetime.today() + timedelta(days=1)).date()
+
     else:
         user_date = parse_date(text)
+
+    # === 3. Проверка даты ===
 
     if not user_date:
         bot.send_message(
@@ -437,22 +460,21 @@ def handle(message):
         )
         return
 
-    # Записываем статистику
+    # === 4. Логируем запрос ===
+
     record_request(
         message.from_user.id,
         user_date.strftime("%Y-%m-%d"),
-        source="text"
+        source="button" if action else "text"
     )
 
+    # === 5. Загружаем данные ===
 
-    # Пишем статус, чтобы пользователь видел, что бот работает
     status = bot.send_message(message.chat.id, "🔍 Ищу выставки…")
 
-    # Читаем таблицу (с кэшем)
     try:
         df = load_data_cached()
     except Exception:
-        # убираем статус и показываем ошибку
         try:
             bot.delete_message(message.chat.id, status.message_id)
         except Exception:
@@ -462,11 +484,12 @@ def handle(message):
 
     matches = df[(df["start_date"] <= user_date) & (df["end_date"] >= user_date)]
 
-    # Убираем статус "Ищу..."
     try:
         bot.delete_message(message.chat.id, status.message_id)
     except Exception:
         pass
+
+    # === 6. Если ничего не найдено ===
 
     if matches.empty:
         bot.send_message(
@@ -476,11 +499,12 @@ def handle(message):
         )
         return
 
+    # === 7. Отправляем результат ===
 
     date_text = format_date_ddmmyyyy(user_date)
     header_base = f"📅 Выставки на {date_text}\nНайдено: {len(matches)}"
-
     send_matches(message.chat.id, matches, header_base)
+
 
 
 bot.polling()
