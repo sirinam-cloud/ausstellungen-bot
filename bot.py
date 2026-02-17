@@ -4,6 +4,7 @@ import html
 import os
 import json
 import time
+from telegram_bot_calendar import DetailedTelegramCalendar
 from collections import Counter
 from zoneinfo import ZoneInfo
 from datetime import datetime, timedelta
@@ -18,7 +19,8 @@ BUTTONS = {
     "⏳ заканчиваются скоро": "ending",
     "🆕 новые выставки": "starting",
     "⭐ лучшие выставки месяца": "best_month",   # ← добавили
-    "🗓 ввести дату": "date",
+    "📅 выбрать дату": "pick_date",
+
 }
 
 
@@ -114,7 +116,7 @@ def main_keyboard():
     kb.row(KeyboardButton("🔥 Выставки на сегодня"), KeyboardButton("📅 Выставки на завтра"))
     kb.row(KeyboardButton("⏳ Заканчиваются скоро"), KeyboardButton("🆕 Новые выставки"))
     kb.row(KeyboardButton("⭐ Лучшие выставки месяца"))   # ← добавили
-    kb.row(KeyboardButton("🗓 Ввести дату"))
+    kb.row(KeyboardButton("📅 Выбрать дату"))
     return kb
 
 
@@ -515,13 +517,15 @@ def handle(message):
         best_month_cmd(message)
         return
 
-    elif action == "date":
+    elif action == "pick_date":
+        calendar, step = DetailedTelegramCalendar().build()
         bot.send_message(
             message.chat.id,
-            "Напишите дату в формате 2026-02-12 или 12.02.2026",
-            reply_markup=main_keyboard()
+            "Выберите дату:",
+            reply_markup=calendar
         )
         return
+
 
     # === 2. Ввод вручную ===
 
@@ -591,6 +595,54 @@ def handle(message):
     header_base = f"📅 Выставки на {date_text}\nНайдено: {len(matches)}"
     send_matches(message.chat.id, matches, header_base)
 
+
+@bot.callback_query_handler(func=DetailedTelegramCalendar.func())
+def cal(callback_query):
+    result, key, step = DetailedTelegramCalendar().process(callback_query.data)
+
+    if not result and key:
+        bot.edit_message_text(
+            f"Выберите {step}:",
+            callback_query.message.chat.id,
+            callback_query.message.message_id,
+            reply_markup=key
+        )
+    elif result:
+        selected_date = result
+
+        bot.edit_message_text(
+            f"Вы выбрали {selected_date.strftime('%d.%m.%Y')}",
+            callback_query.message.chat.id,
+            callback_query.message.message_id
+        )
+
+        user_date = selected_date
+
+        record_request(
+            callback_query.from_user.id,
+            user_date.strftime("%Y-%m-%d"),
+            source="calendar"
+        )
+
+        df = load_data_cached()
+
+        matches = df[
+            (df["start_date"] <= user_date) &
+            (df["end_date"] >= user_date)
+        ]
+
+        if matches.empty:
+            bot.send_message(
+                callback_query.message.chat.id,
+                "На эту дату выставок не найдено.",
+                reply_markup=main_keyboard()
+            )
+            return
+
+        date_text = user_date.strftime("%d.%m.%Y")
+        header_base = f"📅 Выставки на {date_text}\nНайдено: {len(matches)}"
+
+        send_matches(callback_query.message.chat.id, matches, header_base)
 
 
 bot.polling()
