@@ -17,6 +17,7 @@ BUTTONS = {
     "📅 выставки на завтра": "tomorrow",
     "⏳ заканчиваются скоро": "ending",
     "🆕 новые выставки": "starting",
+    "⭐ лучшие выставки месяца": "best_month",   # ← добавили
     "🗓 ввести дату": "date",
 }
 
@@ -112,6 +113,7 @@ def main_keyboard():
     kb = ReplyKeyboardMarkup(resize_keyboard=True)
     kb.row(KeyboardButton("🔥 Выставки на сегодня"), KeyboardButton("📅 Выставки на завтра"))
     kb.row(KeyboardButton("⏳ Заканчиваются скоро"), KeyboardButton("🆕 Новые выставки"))
+    kb.row(KeyboardButton("⭐ Лучшие выставки месяца"))   # ← добавили
     kb.row(KeyboardButton("🗓 Ввести дату"))
     return kb
 
@@ -381,6 +383,62 @@ def starting_soon_cmd(message):
     send_matches(message.chat.id, matches, header_base)
 
 
+@bot.message_handler(commands=["best_month"])
+def best_month_cmd(message):
+    base = datetime.today().date()
+    until_start = base + timedelta(days=30)      # "в ближайший месяц"
+    tomorrow = base + timedelta(days=1)          # "не позднее завтра"
+
+    record_request(
+        message.from_user.id,
+        base.strftime("%Y-%m-%d"),
+        source="best_month"
+    )
+
+    try:
+        df = load_data_cached()
+    except Exception:
+        bot.reply_to(message, "Не удалось прочитать таблицу. Проверь доступ по ссылке.")
+        return
+
+    # Если колонки best ещё нет — подскажем (чтобы не падало)
+    if "best" not in df.columns:
+        bot.send_message(
+            message.chat.id,
+            "В таблице нет колонки 'best'. Добавь колонку best со значением 'да' для лучших выставок 🙂",
+            reply_markup=main_keyboard()
+        )
+        return
+
+    best_mask = (
+        df["best"].astype(str).str.strip().str.lower()
+        .isin({"да", "yes", "true", "1", "y"})
+    )
+
+    starts_within_month = (df["start_date"] >= base) & (df["start_date"] <= until_start)
+
+    ends_by_tomorrow = (df["end_date"] >= base) & (df["end_date"] <= tomorrow)
+
+    matches = df[best_mask & (starts_within_month | ends_by_tomorrow)]
+
+    if matches.empty:
+        bot.send_message(
+            message.chat.id,
+            "Лучших выставок по этому правилу не нашла 😅",
+            reply_markup=main_keyboard()
+        )
+        return
+
+    header_base = (
+        f"⭐ Лучшие выставки месяца\n"
+        f"Начинаются до {until_start.strftime('%d.%m.%Y')} "
+        f"или заканчиваются до {tomorrow.strftime('%d.%m.%Y')}\n"
+        f"Найдено: {len(matches)}"
+    )
+    send_matches(message.chat.id, matches, header_base)
+
+
+
 @bot.message_handler(commands=["about"])
 def about_command(message):
     text = (
@@ -427,6 +485,10 @@ def handle(message):
 
     elif action == "starting":
         starting_soon_cmd(message)
+        return
+
+    elif action == "best_month":
+        best_month_cmd(message)
         return
 
     elif action == "date":
