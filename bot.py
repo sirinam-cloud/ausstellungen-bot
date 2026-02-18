@@ -309,7 +309,7 @@ def start(message):
     )
 
 
-def send_matches(chat_id, matches, header_base):
+def send_matches(chat_id, matches, header_base, show_start: bool = False):
     """
     Красивый вывод matches (DataFrame) с группировкой по музеям и разбиением на части.
     header_base — строка заголовка, например "📅 ...\nНайдено: 10"
@@ -328,17 +328,19 @@ def send_matches(chat_id, matches, header_base):
         museum = html.escape(str(row["museum"]).strip())
         title = html.escape(str(row["title"]).replace("\n", " ").strip())
         url = str(row["url"]).strip()
+        
+        start_date = row["start_date"]
         end_date = row["end_date"]
+
+        start_text = format_date_short_ru(start_date) if pd.notna(start_date) else "—"
         end_text = format_date_short_ru(end_date) if pd.notna(end_date) else "—"
 
-        if museum != current_museum:
-            if current_museum is not None:
-                museum_blocks.append("".join(lines).strip())
-                lines = []
-            current_museum = museum
-            lines.append(f"🏛 {museum}\n")
+        if show_start:
+            lines.append(f"  • ✨ <a href=\"{url}\">{title}</a> (с {start_text}  по {end_text})\n")
 
-        lines.append(f"  • ✨ <a href=\"{url}\">{title}</a> (до {end_text})\n")
+        else:
+            lines.append(f"  • ✨ <a href=\"{url}\">{title}</a> (до {end_text})\n")
+
 
     if lines:
         museum_blocks.append("".join(lines).strip())
@@ -404,7 +406,8 @@ def starting_soon_cmd(message):
         f"Период: {today.strftime('%d.%m.%Y')} – {until.strftime('%d.%m.%Y')}\n"
         f"Найдено: {len(matches)}"
     )
-    send_matches(message.chat.id, matches, header_base)
+    send_matches(message.chat.id, matches, header_base, show_start=True)
+
 
 
 @bot.message_handler(commands=["best_month"])
