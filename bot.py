@@ -106,6 +106,18 @@ def record_request(user_id: int, date_str: str, source: str = "text"):
 
 _load_stats()
 
+@bot.message_handler(commands=["reset_stats"])
+def reset_stats_cmd(message):
+    if message.from_user.id not in ADMIN_IDS:
+        bot.reply_to(message, "Команда доступна только администратору.")
+        return
+
+    global _stats
+    _stats = DEFAULT_STATS.copy()
+    _save_stats(force=True)
+
+    bot.reply_to(message, "Статистика сброшена ✅")
+
 
 SHEETS_URL = os.getenv("SHEETS_CSV_URL")
 CSV_URL = os.getenv("SHEETS_CSV_URL")
