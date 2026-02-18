@@ -328,20 +328,28 @@ def send_matches(chat_id, matches, header_base, show_start: bool = False):
         museum = html.escape(str(row["museum"]).strip())
         title = html.escape(str(row["title"]).replace("\n", " ").strip())
         url = str(row["url"]).strip()
-        
+
         start_date = row["start_date"]
         end_date = row["end_date"]
 
         start_text = format_date_short_ru(start_date) if pd.notna(start_date) else "—"
         end_text = format_date_short_ru(end_date) if pd.notna(end_date) else "—"
 
-        if show_start:
-            lines.append(f"  • ✨ <a href=\"{url}\">{title}</a> (с {start_text}  по {end_text})\n")
+        # 👉 Если музей сменился — начинаем новый блок
+        if museum != current_museum:
+            if current_museum is not None:
+                museum_blocks.append("".join(lines).strip())
+                lines = []
+            current_museum = museum
+            lines.append(f"🏛 {museum}\n")
 
+        # 👉 Формат вывода
+        if show_start:
+            lines.append(f"  • ✨ <a href=\"{url}\">{title}</a> (с {start_text} по {end_text})\n")
         else:
             lines.append(f"  • ✨ <a href=\"{url}\">{title}</a> (до {end_text})\n")
 
-
+    # Добавляем последний музей
     if lines:
         museum_blocks.append("".join(lines).strip())
 
