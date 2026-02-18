@@ -446,19 +446,17 @@ def best_month_cmd(message):
         .isin({"да", "yes", "true", "1", "y"})
     )
 
-    # 1️⃣ Заканчивается не позднее завтра (и ещё не закончилась раньше)
-    ends_by_tomorrow = (
-        (df["end_date"] >= base) &
-        (df["end_date"] <= tomorrow)
-    )
 
-    # 2️⃣ Начинается в пределах ближайших 30 дней
-    starts_within_month = (
-        (df["start_date"] >= base) &
-        (df["start_date"] <= month_end)
-    )
+    # Уже началась
+    already_started = df["start_date"] <= base
 
-    # 3️⃣ Покрывает весь месяц от даты запроса
+    # Ещё не закончилась
+    not_finished = df["end_date"] >= base
+
+    # Заканчивается в пределах ближайших 30 дней
+    ends_within_month = df["end_date"] <= month_end
+
+    # Покрывает весь месяц (началась раньше и закончится позже месяца)
     covers_whole_month = (
         (df["start_date"] <= base) &
         (df["end_date"] >= month_end)
@@ -466,8 +464,11 @@ def best_month_cmd(message):
 
     matches = df[
         best_mask &
-        (ends_by_tomorrow | starts_within_month | covers_whole_month)
+        already_started &
+        not_finished &
+        (ends_within_month | covers_whole_month)
     ]
+
 
     if matches.empty:
         bot.send_message(
