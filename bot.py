@@ -159,27 +159,51 @@ def format_date_ddmmyyyy(d):
     return d.strftime("%d.%m.%Y")
 
 
-# --- simple cache for Google Sheets ---
-CACHE_TTL_SECONDS = 60
+# --- cache for Google Sheets / CSV ---
+# Сколько минут держим данные в памяти (можно задать переменной окружения DATA_CACHE_MINUTES)
+CACHE_TTL_MINUTES = int(os.getenv("DATA_CACHE_MINUTES", "10"))
+CACHE_TTL_SECONDS = max(5, CACHE_TTL_MINUTES * 60)  # защита от 0/отрицательных значений
+
 _cache_df = None
 _cache_loaded_at = None
 
-def load_data_cached():
-    global _cache_df, _cache_loaded_at
-
-    now = datetime.now()
-    if _cache_df is not None and _cache_loaded_at is not None:
-        if (now - _cache_loaded_at).total_seconds() < CACHE_TTL_SECONDS:
-            return _cache_df
+def _download_and_prepare_df():
+    if not CSV_URL:
+        raise RuntimeError("SHEETS_CSV_URL is not set")
 
     df = pd.read_csv(CSV_URL)
     df["start_date"] = pd.to_datetime(df["start_date"], errors="coerce").dt.date
     df["end_date"] = pd.to_datetime(df["end_date"], errors="coerce").dt.date
     df = df.dropna(subset=["start_date", "end_date"])
-
-    _cache_df = df
-    _cache_loaded_at = now
     return df
+
+def load_data_cached(force: bool = False):
+    """
+    force=True — принудительно обновить кэш.
+    Если обновление не удалось, а старый кэш есть — вернём старый кэш (чтобы бот продолжал работать).
+    """
+    global _cache_df, _cache_loaded_at
+
+    now = datetime.now(TZ)
+
+    if not force and _cache_df is not None and _cache_loaded_at is not None:
+        age = (now - _cache_loaded_at).total_seconds()
+        if age < CACHE_TTL_SECONDS:
+            return _cache_df
+
+    try:
+        df = _download_and_prepare_df()
+        _cache_df = df
+        _cache_loaded_at = now
+        return df
+    except Exception as e:
+        # если сеть/таблица временно недоступны — используем старые данные
+        print("DATA load error:", e)
+        if _cache_df is not None:
+            return _cache_df
+        raise
+
+
 
 def send_museum_chunks(chat_id, header_base, museum_blocks, max_len=3500):
     """
