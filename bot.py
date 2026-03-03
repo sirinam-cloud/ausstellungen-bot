@@ -20,7 +20,7 @@ BUTTONS = {
     "🆕 новые выставки": "starting",
     "⭐ лучшие выставки месяца": "best_month",   # ← добавили
     "📅 выбрать дату": "pick_date",
-
+    "🆓 бесплатные дни": "free_days_30",
 }
 
 
@@ -127,7 +127,7 @@ def main_keyboard():
     kb = ReplyKeyboardMarkup(resize_keyboard=True)
     kb.row(KeyboardButton("🔥 Выставки на сегодня"), KeyboardButton("📅 Выбрать дату"))
     kb.row(KeyboardButton("⏳ Заканчиваются скоро"), KeyboardButton("🆕 Новые выставки"))
-    kb.row(KeyboardButton("⭐ Лучшие выставки месяца"))   # ← добавили
+    kb.row(KeyboardButton("⭐ Лучшие выставки месяца"), KeyboardButton("🆓 Бесплатные дни"))
     return kb
 
 
@@ -214,6 +214,105 @@ def load_data_cached(force: bool = False):
             return _cache_df
         raise
 
+
+# =======================
+# FREE DAYS (second sheet)
+# =======================
+def build_free_days_url():
+    """
+    Берём существующий SHEETS_CSV_URL,
+    меняем gid на gid вкладки "Бесплатные дни"
+    """
+    base_url = os.getenv("SHEETS_CSV_URL")
+    if not base_url:
+        raise RuntimeError("SHEETS_CSV_URL is not set")
+
+    # ⚠️ ВСТАВЬТЕ СЮДА gid вкладки 'Бесплатные дни'
+    FREE_GID = "2124402901"  # ← замените на свой
+
+    # заменяем gid в URL
+    if "gid=" in base_url:
+        import re
+        return re.sub(r"gid=\d+", f"gid={FREE_GID}", base_url)
+    else:
+        # если вдруг его нет
+        return base_url + f"&gid={FREE_GID}"
+
+_free_cache_df = None
+_free_cache_loaded_at = None
+
+
+def _normalize_free_days_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Поддерживаем разные названия колонок.
+    Ожидаем смысл: date, museum, event, url
+    """
+    cols = {c: c.strip().lower() for c in df.columns}
+
+    def pick(*variants):
+        for v in variants:
+            for orig, low in cols.items():
+                if low == v:
+                    return orig
+        return None
+
+    c_date = pick("date", "дата")
+    c_museum = pick("museum", "музей", "название музея")
+    c_event = pick("event", "мероприятие", "название мероприятия", "title", "название")
+    c_url = pick("url", "ссылка", "link")
+
+    missing = [name for name, val in [("date/дата", c_date), ("museum/музей", c_museum), ("event/мероприятие", c_event), ("url/ссылка", c_url)] if val is None]
+    if missing:
+        raise RuntimeError(f"FREE days sheet: не нашла колонки: {', '.join(missing)}")
+
+    df = df.rename(columns={
+        c_date: "date",
+        c_museum: "museum",
+        c_event: "event",
+        c_url: "url",
+    })
+    return df
+
+
+def _download_and_prepare_free_df():
+    url = build_free_days_url()
+    df = pd.read_csv(url)
+    df = _normalize_free_days_columns(df)
+
+    df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
+    df = df.dropna(subset=["date", "museum", "event"])
+
+    df["museum"] = df["museum"].astype(str).str.strip()
+    df["event"] = df["event"].astype(str).str.strip()
+    df["url"] = df["url"].astype(str).str.strip()
+
+    return df
+
+
+def load_free_days_cached(force: bool = False):
+    """
+    Аналогично load_data_cached(): кэшируем на CACHE_TTL_SECONDS.
+    Если обновление не удалось, но старый кэш есть — вернём старый.
+    """
+    global _free_cache_df, _free_cache_loaded_at
+
+    now = datetime.now(TZ)
+
+    if not force and _free_cache_df is not None and _free_cache_loaded_at is not None:
+        age = (now - _free_cache_loaded_at).total_seconds()
+        if age < CACHE_TTL_SECONDS:
+            return _free_cache_df
+
+    try:
+        df = _download_and_prepare_free_df()
+        _free_cache_df = df
+        _free_cache_loaded_at = now
+        return df
+    except Exception as e:
+        print("FREE DAYS load error:", e)
+        if _free_cache_df is not None:
+            return _free_cache_df
+        raise
 
 
 def send_museum_chunks(chat_id, header_base, museum_blocks, max_len=3500):
@@ -430,6 +529,91 @@ def starting_soon_cmd(message):
 
 
 
+def free_days_30_cmd(message):
+    base = datetime.now(TZ).date()
+    until = base + timedelta(days=30)
+
+    record_request(
+        message.from_user.id,
+        base.strftime("%Y-%m-%d"),
+        source="free_days_30"
+    )
+
+    status = bot.send_message(message.chat.id, "🔍 Ищу бесплатные дни…")
+
+    try:
+        df = load_free_days_cached()
+    except Exception:
+        try:
+            bot.delete_message(message.chat.id, status.message_id)
+        except Exception:
+            pass
+        bot.send_message(message.chat.id, "Не удалось загрузить таблицу бесплатных дней 😕", reply_markup=main_keyboard())
+        return
+
+    # фильтр по окну 30 дней (включительно)
+    window = df[(df["date"] >= base) & (df["date"] <= until)].copy()
+
+    try:
+        bot.delete_message(message.chat.id, status.message_id)
+    except Exception:
+        pass
+
+    if window.empty:
+        bot.send_message(
+            message.chat.id,
+            f"🆓 Бесплатный вход\n"
+            f"На ближайшие 30 дней ({base.strftime('%d.%m.%Y')} – {until.strftime('%d.%m.%Y')}) ничего не нашла.",
+            reply_markup=main_keyboard()
+        )
+        return
+
+    window = window.sort_values(by=["date", "museum", "event"])
+
+    # Собираем блоки: один блок = одна дата, внутри группировка по музеям
+    blocks = []
+    current_date = None
+    current_museum = None
+    lines = []
+
+    for _, row in window.iterrows():
+        d = row["date"]
+        museum = html.escape(str(row["museum"]).strip())
+        event = html.escape(str(row["event"]).replace("\n", " ").strip())
+        url = str(row["url"]).strip()
+
+        # новая дата → закрываем предыдущий блок
+        if d != current_date:
+            if lines:
+                blocks.append("".join(lines).strip())
+                lines = []
+            current_date = d
+            current_museum = None
+            lines.append(f"📅 <b>{format_date_ddmmyyyy(d)}</b>\n")
+
+        # новый музей внутри даты
+        if museum != current_museum:
+            current_museum = museum
+            lines.append(f"🏛 {museum}\n")
+
+        if url and url.lower().startswith(("http://", "https://")):
+            lines.append(f"  • 🎟 <a href=\"{url}\">{event}</a>\n")
+        else:
+            lines.append(f"  • 🎟 {event}\n")
+
+    if lines:
+        blocks.append("".join(lines).strip())
+
+    header_base = (
+        "🆓 Бесплатный вход на ближайшие 30 дней\n"
+        f"Период: {base.strftime('%d.%m.%Y')} – {until.strftime('%d.%m.%Y')}\n"
+        f"Найдено: {len(window)}"
+    )
+
+    # используем ваш механизм разбиения на части
+    send_museum_chunks(message.chat.id, header_base, blocks)
+
+
 @bot.message_handler(commands=["best_month"])
 def best_month_cmd(message):
     base = datetime.today().date()
@@ -558,6 +742,10 @@ def handle(message):
 
     elif action == "best_month":
         best_month_cmd(message)
+        return
+
+    elif action == "free_days_30":
+        free_days_30_cmd(message)
         return
 
     elif action == "pick_date":
